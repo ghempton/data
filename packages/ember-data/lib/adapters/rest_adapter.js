@@ -82,7 +82,7 @@ DS.RESTAdapter = DS.Adapter.extend({
     var data = {};
     data[root] = this.serialize(record, { includeId: true });
 
-    this.ajax(this.buildURL(root), "POST", {
+    return this.ajax(this.buildURL(root), "POST", {
       data: data,
       context: this,
       success: function(json) {
@@ -141,7 +141,7 @@ DS.RESTAdapter = DS.Adapter.extend({
       data[plural].push(this.serialize(record, { includeId: true }));
     }, this);
 
-    this.ajax(this.buildURL(root), "POST", {
+    return this.ajax(this.buildURL(root), "POST", {
       data: data,
       context: this,
       success: function(json) {
@@ -159,7 +159,7 @@ DS.RESTAdapter = DS.Adapter.extend({
     var data = {};
     data[root] = this.serialize(record);
 
-    this.ajax(this.buildURL(root, id), "PUT", {
+    return this.ajax(this.buildURL(root, id), "PUT", {
       data: data,
       context: this,
       success: function(json) {
@@ -187,7 +187,7 @@ DS.RESTAdapter = DS.Adapter.extend({
       data[plural].push(this.serialize(record, { includeId: true }));
     }, this);
 
-    this.ajax(this.buildURL(root, "bulk"), "PUT", {
+    return this.ajax(this.buildURL(root, "bulk"), "PUT", {
       data: data,
       context: this,
       success: function(json) {
@@ -202,7 +202,7 @@ DS.RESTAdapter = DS.Adapter.extend({
     var id = get(record, 'id');
     var root = this.rootForType(type);
 
-    this.ajax(this.buildURL(root, id), "DELETE", {
+    return this.ajax(this.buildURL(root, id), "DELETE", {
       context: this,
       success: function(json) {
         Ember.run(this, function(){
@@ -227,7 +227,7 @@ DS.RESTAdapter = DS.Adapter.extend({
       data[plural].push(serializer.serializeId( get(record, 'id') ));
     });
 
-    this.ajax(this.buildURL(root, 'bulk'), "DELETE", {
+    return this.ajax(this.buildURL(root, 'bulk'), "DELETE", {
       data: data,
       context: this,
       success: function(json) {
@@ -241,7 +241,7 @@ DS.RESTAdapter = DS.Adapter.extend({
   find: function(store, type, id) {
     var root = this.rootForType(type);
 
-    this.ajax(this.buildURL(root, id), "GET", {
+    return this.ajax(this.buildURL(root, id), "GET", {
       success: function(json) {
         Ember.run(this, function(){
           this.didFindRecord(store, type, json, id);
@@ -253,7 +253,7 @@ DS.RESTAdapter = DS.Adapter.extend({
   findAll: function(store, type, since) {
     var root = this.rootForType(type);
 
-    this.ajax(this.buildURL(root), "GET", {
+    return this.ajax(this.buildURL(root), "GET", {
       data: this.sinceQuery(since),
       success: function(json) {
         Ember.run(this, function(){
@@ -266,7 +266,7 @@ DS.RESTAdapter = DS.Adapter.extend({
   findQuery: function(store, type, query, recordArray) {
     var root = this.rootForType(type);
 
-    this.ajax(this.buildURL(root), "GET", {
+    return this.ajax(this.buildURL(root), "GET", {
       data: query,
       success: function(json) {
         Ember.run(this, function(){
@@ -280,7 +280,7 @@ DS.RESTAdapter = DS.Adapter.extend({
     var root = this.rootForType(type);
     ids = this.serializeIds(ids);
 
-    this.ajax(this.buildURL(root), "GET", {
+    return this.ajax(this.buildURL(root), "GET", {
       data: {ids: ids},
       success: function(json) {
         Ember.run(this, function(){
@@ -325,7 +325,7 @@ DS.RESTAdapter = DS.Adapter.extend({
       hash.data = JSON.stringify(hash.data);
     }
 
-    jQuery.ajax(hash);
+    return jQuery.ajax(hash);
   },
 
   url: "",
