@@ -4,6 +4,7 @@ var adapter, store, serializer, ajaxUrl, ajaxType, ajaxHash, overwriteAjax;
 var Person, person, people;
 var Role, role, roles;
 var Group, group;
+var promises;
 
 module("the REST adapter", {
   setup: function() {
@@ -20,7 +21,7 @@ module("the REST adapter", {
     adapter = Adapter.createWithMixins({
       ajax: function(url, type, hash) {
         var self = this;
-        return new Ember.RSVP.Promise(function(resolve, reject){
+        var promise = new Ember.RSVP.Promise(function(resolve, reject){
           hash = hash || {};
           var success = hash.success;
 
@@ -42,6 +43,10 @@ module("the REST adapter", {
             });
           };
         });
+
+        promises.push(promise);
+
+        return promise;
       }
     });
 
@@ -79,6 +84,8 @@ module("the REST adapter", {
     Role.toString = function() {
       return "App.Role";
     };
+
+    promises = [];
   },
 
   teardown: function() {
@@ -86,11 +93,36 @@ module("the REST adapter", {
       person.destroy();
       person = null;
     }
+    promises = undefined;
 
     adapter.destroy();
     store.destroy();
   }
 });
+
+function waitForPromises(callback) {
+  stop();
+  Ember.run(function() {
+    Ember.RSVP.all(promises).then(function() {
+      // promise inception!!
+      if(promises.length > 0) {
+        waitForPromises(callback);
+      } else {
+        start();
+        if(callback) { callback.call(this); }
+      }
+    }, function() {
+      // promise inception!!
+      if(promises.length > 0) {
+        waitForPromises(callback);
+      } else {
+        start();
+        if(callback) { callback.call(this); }
+      }
+    });
+    promises = [];
+  });
+}
 
 var expectUrl = function(url, desc) {
   equal(ajaxUrl, url, "the URL is " + desc);
@@ -172,9 +204,12 @@ test("creating a person makes a POST to /people, with the data hash", function()
   expectData({ person: { name: "Tom Dale", group_id: null } });
 
   ajaxHash.success({ person: { id: 1, name: "Tom Dale" } });
-  expectState('saving', false);
 
-  equal(person, store.find(Person, 1), "it is now possible to retrieve the person by the ID supplied");
+  waitForPromises(function() {
+    expectState('saving', false);
+
+    equal(person, store.find(Person, 1), "it is now possible to retrieve the person by the ID supplied");
+  });
 });
 
 test("singular creations can sideload data", function() {
@@ -193,12 +228,14 @@ test("singular creations can sideload data", function() {
     groups: [{ id: 1, name: "Group 1" }]
   });
 
-  expectState('saving', false);
+  waitForPromises(function() {
+    expectState('saving', false);
 
-  equal(person, store.find(Person, 1), "it is now possible to retrieve the person by the ID supplied");
+    equal(person, store.find(Person, 1), "it is now possible to retrieve the person by the ID supplied");
 
-  group = store.find(Group, 1);
-  equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+    group = store.find(Group, 1);
+    equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+  });
 });
 
 test("updating a person makes a PUT to /people/:id with the data hash", function() {
@@ -221,10 +258,13 @@ test("updating a person makes a PUT to /people/:id with the data hash", function
   expectData({ person: { name: "Brohuda Brokatz", group_id: null } });
 
   ajaxHash.success({ person: { id: 1, name: "Brohuda Brokatz" } });
-  expectState('saving', false);
 
-  equal(person, store.find(Person, 1), "the same person is retrieved by the same ID");
-  equal(get(person, 'name'), "Brohuda Brokatz", "the hash should be updated");
+  waitForPromises(function() {
+    expectState('saving', false);
+
+    equal(person, store.find(Person, 1), "the same person is retrieved by the same ID");
+    equal(get(person, 'name'), "Brohuda Brokatz", "the hash should be updated");
+  });
 });
 
 test("updates are not required to return data", function() {
@@ -246,10 +286,12 @@ test("updates are not required to return data", function() {
   expectType("PUT");
 
   ajaxHash.success();
-  expectState('saving', false);
+  waitForPromises(function() {
+    expectState('saving', false);
 
-  equal(person, store.find(Person, 1), "the same person is retrieved by the same ID");
-  equal(get(person, 'name'), "Brohuda Brokatz", "the data is preserved");
+    equal(person, store.find(Person, 1), "the same person is retrieved by the same ID");
+    equal(get(person, 'name'), "Brohuda Brokatz", "the data is preserved");
+  });
 });
 
 test("singular updates can sideload data", function() {
@@ -277,12 +319,14 @@ test("singular updates can sideload data", function() {
     groups: [{ id: 1, name: "Group 1" }]
   });
 
-  expectState('saving', false);
+  waitForPromises(function() {
+    expectState('saving', false);
 
-  equal(person, store.find(Person, 1), "the same person is retrieved by the same ID");
+    equal(person, store.find(Person, 1), "the same person is retrieved by the same ID");
 
-  group = store.find(Group, 1);
-  equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+    group = store.find(Group, 1);
+    equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+  });
 });
 
 test("deleting a person makes a DELETE to /people/:id", function() {
@@ -305,7 +349,9 @@ test("deleting a person makes a DELETE to /people/:id", function() {
   expectType("DELETE");
 
   ajaxHash.success();
-  expectState('deleted');
+  waitForPromises(function() {
+    expectState('deleted');
+  });
 });
 
 test("singular deletes can sideload data", function() {
@@ -333,10 +379,12 @@ test("singular deletes can sideload data", function() {
     groups: [{ id: 1, name: "Group 1" }]
   });
 
-  expectState('deleted');
+  waitForPromises(function() {
+    expectState('deleted');
 
-  group = store.find(Group, 1);
-  equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+    group = store.find(Group, 1);
+    equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+  });
 });
 
 /*
@@ -349,8 +397,9 @@ test("deleting a record with custom primaryKey", function() {
 
   store.commit();
 
-  expectUrl("/roles/1", "the plural of the model name with its ID");
-  ajaxHash.success();
+    expectUrl("/roles/1", "the plural of the model name with its ID");
+    ajaxHash.success();
+  });
 });
 */
 
@@ -362,12 +411,14 @@ test("finding all people makes a GET to /people", function() {
 
   ajaxHash.success({ people: [{ id: 1, name: "Yehuda Katz" }] });
 
-  person = people.objectAt(0);
+  waitForPromises(function() {
+    person = people.objectAt(0);
 
-  expectState('loaded');
-  expectState('dirty', false);
+    expectState('loaded');
+    expectState('dirty', false);
 
-  equal(person, store.find(Person, 1), "the record is now in the store, and can be looked up by ID without another Ajax request");
+    equal(person, store.find(Person, 1), "the record is now in the store, and can be looked up by ID without another Ajax request");
+  });
 });
 
 test("finding all can sideload data", function() {
@@ -381,13 +432,15 @@ test("finding all can sideload data", function() {
     people: [{ id: 1, name: "Yehuda Katz" }]
   });
 
-  people = get(groups.objectAt(0), 'people');
-  person = people.objectAt(0);
+  waitForPromises(function() {
+    people = get(groups.objectAt(0), 'people');
+    person = people.objectAt(0);
 
-  expectState('loaded');
-  expectState('dirty', false);
+    expectState('loaded');
+    expectState('dirty', false);
 
-  equal(person, store.find(Person, 1), "the record is now in the store, and can be looked up by ID without another Ajax request");
+    equal(person, store.find(Person, 1), "the record is now in the store, and can be looked up by ID without another Ajax request");
+  });
 });
 
 test("finding all people with since makes a GET to /people", function() {
@@ -398,30 +451,36 @@ test("finding all people with since makes a GET to /people", function() {
 
   ajaxHash.success({ meta: { since: '123'}, people: [{ id: 1, name: "Yehuda Katz" }] });
 
-  people = store.find(Person);
+  waitForPromises(function() {
+    people = store.find(Person);
 
-  expectUrl("/people", "the plural of the model name");
-  expectType("GET");
-  expectData({since: '123'});
+    expectUrl("/people", "the plural of the model name");
+    expectType("GET");
+    expectData({since: '123'});
 
-  ajaxHash.success({ meta: { since: '1234'}, people: [{ id: 2, name: "Paul Chavard" }] });
+    ajaxHash.success({ meta: { since: '1234'}, people: [{ id: 2, name: "Paul Chavard" }] });
 
-  person = people.objectAt(1);
+    waitForPromises(function() {
+      person = people.objectAt(1);
 
-  expectState('loaded');
-  expectState('dirty', false);
+      expectState('loaded');
+      expectState('dirty', false);
 
-  equal(person, store.find(Person, 2), "the record is now in the store, and can be looked up by ID without another Ajax request");
+      equal(person, store.find(Person, 2), "the record is now in the store, and can be looked up by ID without another Ajax request");
 
-  people.update();
+      people.update();
 
-  expectUrl("/people", "the plural of the model name");
-  expectType("GET");
-  expectData({since: '1234'});
+      expectUrl("/people", "the plural of the model name");
+      expectType("GET");
+      expectData({since: '1234'});
 
-  ajaxHash.success({ meta: { since: '12345'}, people: [{ id: 3, name: "Dan Gebhardt" }] });
+      ajaxHash.success({ meta: { since: '12345'}, people: [{ id: 3, name: "Dan Gebhardt" }] });
 
-  equal(people.get('length'), 3, 'should have 3 records now');
+      waitForPromises(function() {
+        equal(people.get('length'), 3, 'should have 3 records now');
+      });
+    });
+  });
 });
 
 test("meta and since are configurable", function() {
@@ -439,20 +498,24 @@ test("meta and since are configurable", function() {
 
   ajaxHash.success({ metaObject: {sinceToken: '123'}, people: [{ id: 1, name: "Yehuda Katz" }] });
 
-  people.update();
+  waitForPromises(function() {
+    people.update();
 
-  expectUrl("/people", "the plural of the model name");
-  expectType("GET");
-  expectData({lastToken: '123'});
+    expectUrl("/people", "the plural of the model name");
+    expectType("GET");
+    expectData({lastToken: '123'});
 
-  ajaxHash.success({ metaObject: {sinceToken: '1234'}, people: [{ id: 2, name: "Paul Chavard" }] });
+    ajaxHash.success({ metaObject: {sinceToken: '1234'}, people: [{ id: 2, name: "Paul Chavard" }] });
 
-  person = people.objectAt(1);
+    waitForPromises(function() {
+      person = people.objectAt(1);
 
-  expectState('loaded');
-  expectState('dirty', false);
+      expectState('loaded');
+      expectState('dirty', false);
 
-  equal(person, store.find(Person, 2), "the record is now in the store, and can be looked up by ID without another Ajax request");
+      equal(person, store.find(Person, 2), "the record is now in the store, and can be looked up by ID without another Ajax request");
+    });
+  });
 });
 
 test("finding a person by ID makes a GET to /people/:id", function() {
@@ -464,10 +527,12 @@ test("finding a person by ID makes a GET to /people/:id", function() {
 
   ajaxHash.success({ person: { id: 1, name: "Yehuda Katz" } });
 
-  expectState('loaded');
-  expectState('dirty', false);
+  waitForPromises(function() {
+    expectState('loaded');
+    expectState('dirty', false);
 
-  equal(person, store.find(Person, 1), "the record is now in the store, and can be looked up by ID without another Ajax request");
+    equal(person, store.find(Person, 1), "the record is now in the store, and can be looked up by ID without another Ajax request");
+  });
 });
 
 test("finding a person by ID makes a GET to /people/:id", function() {
@@ -479,10 +544,11 @@ test("finding a person by ID makes a GET to /people/:id", function() {
 
   ajaxHash.success({ person: { id: 1, name: "Yehuda Katz" } });
 
-  expectState('loaded');
-  expectState('dirty', false);
-
-  equal(person, store.find(Person, 1), "the record is now in the store, and can be looked up by ID without another Ajax request");
+  waitForPromises(function() {
+    expectState('loaded');
+    expectState('dirty', false);
+    equal(person, store.find(Person, 1), "the record is now in the store, and can be looked up by ID without another Ajax request");
+  });
 });
 
 test("attempting to find a record that result in a non-200 status error marks the record as error", function() {
@@ -520,8 +586,10 @@ test("additional data can be sideloaded in a GET", function() {
     }]
   });
 
-  equal(get(store.find(Person, 1), 'name'), "Yehuda Katz", "the items are sideloaded");
-  equal(get(get(store.find(Group, 1), 'people').objectAt(0), 'name'), "Yehuda Katz", "the items are in the relationship");
+  waitForPromises(function() {
+    equal(get(store.find(Person, 1), 'name'), "Yehuda Katz", "the items are sideloaded");
+    equal(get(get(store.find(Group, 1), 'people').objectAt(0), 'name'), "Yehuda Katz", "the items are in the relationship");
+  });
 });
 
 test("finding many people by a list of IDs", function() {
@@ -551,20 +619,22 @@ test("finding many people by a list of IDs", function() {
     ]
   });
 
-  var rein = people.objectAt(0);
-  equal(get(rein, 'name'), "Rein Heinrichs");
-  equal(get(rein, 'id'), 1);
+  waitForPromises(function() {
+    var rein = people.objectAt(0);
+    equal(get(rein, 'name'), "Rein Heinrichs");
+    equal(get(rein, 'id'), 1);
 
-  var tom = people.objectAt(1);
-  equal(get(tom, 'name'), "Tom Dale");
-  equal(get(tom, 'id'), 2);
+    var tom = people.objectAt(1);
+    equal(get(tom, 'name'), "Tom Dale");
+    equal(get(tom, 'id'), 2);
 
-  var yehuda = people.objectAt(2);
-  equal(get(yehuda, 'name'), "Yehuda Katz");
-  equal(get(yehuda, 'id'), 3);
+    var yehuda = people.objectAt(2);
+    equal(get(yehuda, 'name'), "Yehuda Katz");
+    equal(get(yehuda, 'id'), 3);
 
-  people.forEach(function(person) {
-    equal(get(person, 'isLoaded'), true, "the person is being loaded");
+    people.forEach(function(person) {
+      equal(get(person, 'isLoaded'), true, "the person is being loaded");
+    });
   });
 });
 
@@ -583,17 +653,21 @@ test("finding many people by a list of IDs doesn't rely on the returned array or
     ]
   });
 
-  var rein = people.objectAt(0);
-  equal(get(rein, 'name'), "Rein Heinrichs");
-  equal(get(rein, 'id'), 1);
+  waitForPromises(function() {
 
-  var tom = people.objectAt(1);
-  equal(get(tom, 'name'), "Tom Dale");
-  equal(get(tom, 'id'), 2);
+    var rein = people.objectAt(0);
+    equal(get(rein, 'name'), "Rein Heinrichs");
+    equal(get(rein, 'id'), 1);
 
-  var yehuda = people.objectAt(2);
-  equal(get(yehuda, 'name'), "Yehuda Katz");
-  equal(get(yehuda, 'id'), 3);
+    var tom = people.objectAt(1);
+    equal(get(tom, 'name'), "Tom Dale");
+    equal(get(tom, 'id'), 2);
+
+    var yehuda = people.objectAt(2);
+    equal(get(yehuda, 'name'), "Yehuda Katz");
+    equal(get(yehuda, 'id'), 3);
+
+  });
 
 });
 
@@ -624,23 +698,25 @@ test("additional data can be sideloaded in a GET with many IDs", function() {
     ]
   });
 
-  var people = get(group, 'people');
-  equal(get(people, 'length'), 3, "the people have length");
+  waitForPromises(function() {
+    var people = get(group, 'people');
+    equal(get(people, 'length'), 3, "the people have length");
 
-  var rein = people.objectAt(0);
-  equal(get(rein, 'name'), "Rein Heinrichs");
-  equal(get(rein, 'id'), 1);
+    var rein = people.objectAt(0);
+    equal(get(rein, 'name'), "Rein Heinrichs");
+    equal(get(rein, 'id'), 1);
 
-  var tom = people.objectAt(1);
-  equal(get(tom, 'name'), "Tom Dale");
-  equal(get(tom, 'id'), 2);
+    var tom = people.objectAt(1);
+    equal(get(tom, 'name'), "Tom Dale");
+    equal(get(tom, 'id'), 2);
 
-  var yehuda = people.objectAt(2);
-  equal(get(yehuda, 'name'), "Yehuda Katz");
-  equal(get(yehuda, 'id'), 3);
+    var yehuda = people.objectAt(2);
+    equal(get(yehuda, 'name'), "Yehuda Katz");
+    equal(get(yehuda, 'id'), 3);
 
-  people.forEach(function(person) {
-    equal(get(person, 'isLoaded'), true, "the person is being loaded");
+    people.forEach(function(person) {
+      equal(get(person, 'isLoaded'), true, "the person is being loaded");
+    });
   });
 });
 
@@ -661,22 +737,24 @@ test("finding people by a query", function() {
     ]
   });
 
-  equal(get(people, 'length'), 3, "the people are now loaded");
+  waitForPromises(function() {
+    equal(get(people, 'length'), 3, "the people are now loaded");
 
-  var rein = people.objectAt(0);
-  equal(get(rein, 'name'), "Rein Heinrichs");
-  equal(get(rein, 'id'), 1);
+    var rein = people.objectAt(0);
+    equal(get(rein, 'name'), "Rein Heinrichs");
+    equal(get(rein, 'id'), 1);
 
-  var tom = people.objectAt(1);
-  equal(get(tom, 'name'), "Tom Dale");
-  equal(get(tom, 'id'), 2);
+    var tom = people.objectAt(1);
+    equal(get(tom, 'name'), "Tom Dale");
+    equal(get(tom, 'id'), 2);
 
-  var yehuda = people.objectAt(2);
-  equal(get(yehuda, 'name'), "Yehuda Katz");
-  equal(get(yehuda, 'id'), 3);
+    var yehuda = people.objectAt(2);
+    equal(get(yehuda, 'name'), "Yehuda Katz");
+    equal(get(yehuda, 'id'), 3);
 
-  people.forEach(function(person) {
-    equal(get(person, 'isLoaded'), true, "the person is being loaded");
+    people.forEach(function(person) {
+      equal(get(person, 'isLoaded'), true, "the person is being loaded");
+    });
   });
 });
 
@@ -700,25 +778,27 @@ test("finding people by a query can sideload data", function() {
     ]
   });
 
-  var group = groups.objectAt(0);
-  var people = get(group, 'people');
+  waitForPromises(function() {
+    var group = groups.objectAt(0);
+    var people = get(group, 'people');
 
-  equal(get(people, 'length'), 3, "the people are now loaded");
+    equal(get(people, 'length'), 3, "the people are now loaded");
 
-  var rein = people.objectAt(0);
-  equal(get(rein, 'name'), "Rein Heinrichs");
-  equal(get(rein, 'id'), 1);
+    var rein = people.objectAt(0);
+    equal(get(rein, 'name'), "Rein Heinrichs");
+    equal(get(rein, 'id'), 1);
 
-  var tom = people.objectAt(1);
-  equal(get(tom, 'name'), "Tom Dale");
-  equal(get(tom, 'id'), 2);
+    var tom = people.objectAt(1);
+    equal(get(tom, 'name'), "Tom Dale");
+    equal(get(tom, 'id'), 2);
 
-  var yehuda = people.objectAt(2);
-  equal(get(yehuda, 'name'), "Yehuda Katz");
-  equal(get(yehuda, 'id'), 3);
+    var yehuda = people.objectAt(2);
+    equal(get(yehuda, 'name'), "Yehuda Katz");
+    equal(get(yehuda, 'id'), 3);
 
-  people.forEach(function(person) {
-    equal(get(person, 'isLoaded'), true, "the person is being loaded");
+    people.forEach(function(person) {
+      equal(get(person, 'isLoaded'), true, "the person is being loaded");
+    });
   });
 });
 
@@ -739,10 +819,12 @@ test("creating several people (with bulkCommit) makes a POST to /people, with a 
   expectData({ people: [ { name: "Tom Dale", group_id: null }, { name: "Yehuda Katz", group_id: null } ] });
 
   ajaxHash.success({ people: [ { id: 1, name: "Tom Dale" }, { id: 2, name: "Yehuda Katz" } ] });
-  expectStates('saving', false);
+  waitForPromises(function() {
+    expectStates('saving', false);
 
-  equal(tom, store.find(Person, 1), "it is now possible to retrieve the person by the ID supplied");
-  equal(yehuda, store.find(Person, 2), "it is now possible to retrieve the person by the ID supplied");
+    equal(tom, store.find(Person, 1), "it is now possible to retrieve the person by the ID supplied");
+    equal(yehuda, store.find(Person, 2), "it is now possible to retrieve the person by the ID supplied");
+  });
 });
 
 test("bulk commits can sideload data", function() {
@@ -767,14 +849,15 @@ test("bulk commits can sideload data", function() {
     people: [ { id: 1, name: "Tom Dale" }, { id: 2, name: "Yehuda Katz" } ],
     groups: [ { id: 1, name: "Group 1" } ]
   });
+  waitForPromises(function() {
+    expectStates('saving', false);
 
-  expectStates('saving', false);
+    equal(tom, store.find(Person, 1), "it is now possible to retrieve the person by the ID supplied");
+    equal(yehuda, store.find(Person, 2), "it is now possible to retrieve the person by the ID supplied");
 
-  equal(tom, store.find(Person, 1), "it is now possible to retrieve the person by the ID supplied");
-  equal(yehuda, store.find(Person, 2), "it is now possible to retrieve the person by the ID supplied");
-
-  group = store.find(Group, 1);
-  equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+    group = store.find(Group, 1);
+    equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+  });
 });
 
 test("updating several people (with bulkCommit) makes a PUT to /people/bulk with the data hash Array", function() {
@@ -809,11 +892,12 @@ test("updating several people (with bulkCommit) makes a PUT to /people/bulk with
     { id: 1, name: "Brohuda Brokatz" },
     { id: 2, name: "Brocarl Brolerche" }
   ]});
+  waitForPromises(function() {
+    expectStates('saving', false);
 
-  expectStates('saving', false);
-
-  equal(yehuda, store.find(Person, 1), "the same person is retrieved by the same ID");
-  equal(carl, store.find(Person, 2), "the same person is retrieved by the same ID");
+    equal(yehuda, store.find(Person, 1), "the same person is retrieved by the same ID");
+    equal(carl, store.find(Person, 2), "the same person is retrieved by the same ID");
+  });
 });
 
 test("bulk updates can sideload data", function() {
@@ -853,14 +937,15 @@ test("bulk updates can sideload data", function() {
     ],
     groups: [{ id: 1, name: "Group 1" }]
   });
+  waitForPromises(function() {
+    expectStates('saving', false);
 
-  expectStates('saving', false);
+    equal(yehuda, store.find(Person, 1), "the same person is retrieved by the same ID");
+    equal(carl, store.find(Person, 2), "the same person is retrieved by the same ID");
 
-  equal(yehuda, store.find(Person, 1), "the same person is retrieved by the same ID");
-  equal(carl, store.find(Person, 2), "the same person is retrieved by the same ID");
-
-  group = store.find(Group, 1);
-  equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+    group = store.find(Group, 1);
+    equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+  });
 });
 
 test("deleting several people (with bulkCommit) makes a DELETE to /people/bulk", function() {
@@ -893,10 +978,11 @@ test("deleting several people (with bulkCommit) makes a DELETE to /people/bulk",
   expectData({ people: [1, 2] });
 
   ajaxHash.success();
-
-  expectStates('saving', false);
-  expectStates('deleted');
-  expectStates('dirty', false);
+  waitForPromises(function() {
+    expectStates('saving', false);
+    expectStates('deleted');
+    expectStates('dirty', false);
+  });
 });
 
 test("bulk deletes can sideload data", function() {
@@ -933,13 +1019,14 @@ test("bulk deletes can sideload data", function() {
   ajaxHash.success({
     groups: [{ id: 1, name: "Group 1" }]
   });
+  waitForPromises(function() {
+    expectStates('saving', false);
+    expectStates('deleted');
+    expectStates('dirty', false);
 
-  expectStates('saving', false);
-  expectStates('deleted');
-  expectStates('dirty', false);
-
-  group = store.find(Group, 1);
-  equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+    group = store.find(Group, 1);
+    equal(get(group, 'name'), "Group 1", "the data sideloaded successfully");
+  });
 });
 
 test("if you specify a namespace then it is prepended onto all URLs", function() {
@@ -972,6 +1059,8 @@ test("sideloaded data is loaded prior to primary data (to ensure relationship co
     ],
     group: { id: 1, name: "Tilde team", person_ids: [1] }
   });
+
+  waitForPromises();
 });
 
 test("additional data can be sideloaded with relationships in correct order", function() {
@@ -998,6 +1087,8 @@ test("additional data can be sideloaded with relationships in correct order", fu
       id: 1, name: "Yehuda Katz"
     }]
   });
+
+  waitForPromises();
 });
 
 test("data loaded from the server is converted from underscores to camelcase", function() {
@@ -1038,6 +1129,8 @@ test("When a record with a belongsTo is saved the foreign key should be sent.", 
   expectType("POST");
   expectData({ person: { name: "Sam Woodard", person_type_id: 1, group_id: null } });
   ajaxHash.success({ person: { name: 'Sam Woodard', person_type_id: 1}});
+
+  waitForPromises();
 });
 
 test("creating a record with a 422 error marks the records as invalid", function(){
@@ -1050,10 +1143,10 @@ test("creating a record with a 422 error marks the records as invalid", function
   };
 
   ajaxHash.error.call(ajaxHash.context, mockXHR);
-
-  expectState('valid', false);
-
-  deepEqual(person.get('errors'), { name: ["can't be blank"]}, "the person has the errors");
+  waitForPromises(function() {
+    expectState('valid', false);
+    deepEqual(person.get('errors'), { name: ["can't be blank"]}, "the person has the errors");
+  });
 });
 
 test("updating a record with a 422 error marks the records as invalid", function(){
@@ -1072,9 +1165,10 @@ test("updating a record with a 422 error marks the records as invalid", function
 
   ajaxHash.error.call(ajaxHash.context, mockXHR);
 
-  expectState('valid', false);
-
-  deepEqual(person.get('errors'), { name: ["can't be blank"], updatedAt: ["can't be blank"] }, "the person has the errors");
+  waitForPromises(function() {
+    expectState('valid', false);
+    deepEqual(person.get('errors'), { name: ["can't be blank"], updatedAt: ["can't be blank"] }, "the person has the errors");
+  });
 });
 
 test("creating a record with a 500 error marks the record as error", function() {
@@ -1086,9 +1180,11 @@ test("creating a record with a 500 error marks the record as error", function() 
     responseText: 'Internal Server Error'
   };
 
-  ajaxHash.error.call(ajaxHash.context, mockXHR);
+  ajaxHash.error.call(ajaxHash.context, mockXHR); 
 
-  expectState('error');
+  waitForPromises(function() {
+    expectState('error');
+  });
 });
 
 test("updating a record with a 500 error marks the record as error", function() {
@@ -1104,7 +1200,9 @@ test("updating a record with a 500 error marks the record as error", function() 
 
   ajaxHash.error.call(ajaxHash.context, mockXHR);
 
-  expectState('error');
+  waitForPromises(function() {
+    expectState('error');
+  });
 });
 
 
