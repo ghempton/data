@@ -2,7 +2,7 @@ var get = Ember.get, set = Ember.set;
 /*global $*/
 
 var adapter, Adapter, store, serializer, ajaxResults, ajaxCalls, promises, idCounter;
-var Post, Comment;
+var Post, Comment, Tag;
 
 module("Relational Adapter", {
   setup: function() {
@@ -29,15 +29,15 @@ module("Relational Adapter", {
       }
     });
 
-    adapter = Adapter.create();
-
-    serializer = get(adapter, 'serializer');
-
-    store = DS.Store.create({
-      adapter: adapter
+    Post = DS.Model.extend();
+    Tag = DS.Model.extend({
+      name: DS.attr('string'),
+      post: DS.belongsTo(Post)
     });
 
-    Post = DS.Model.extend();
+    Tag.toString = function() {
+      return "App.Tag";
+    };
 
     Comment = DS.Model.extend({
       body: DS.attr('string'),
@@ -50,12 +50,25 @@ module("Relational Adapter", {
 
     Post.reopen({
       title: DS.attr('string'),
-      comments: DS.hasMany(Comment)
+      comments: DS.hasMany(Comment),
+      tags: DS.hasMany(Tag)
     });
 
     Post.toString = function() {
       return "App.Post";
     };
+
+    Adapter.map(Post, {
+      tags: { embedded: 'always' }
+    });
+
+    adapter = Adapter.create();
+
+    serializer = get(adapter, 'serializer');
+
+    store = DS.Store.create({
+      adapter: adapter
+    });
   },
 
   teardown: function() {
@@ -70,21 +83,31 @@ module("Relational Adapter", {
 
 function waitForPromises(callback) {
   $.when.apply($, promises).then(function() {
-    if(callback) { callback.call(this); }
-    start();
+    // promise inception!!
+    if(promises.length > 0) {
+      waitForPromises(callback);
+    } else {
+      start();
+      if(callback) { callback.call(this); }
+    }
   });
+  promises = [];
 }
 
 function dataForRequest(record, props) {
+  props = props || {};
   var root = adapter.rootForType(record.constructor);
   var data = adapter.serialize(record, { includeId: true });
+  Ember.merge(data, props);
   var result = {};
   result[root] = data;
   return result;
 }
 
-function dataForCreate(record) {
-  return dataForRequest(record, {id: idCounter++});
+function dataForCreate(record, props) {
+  props = props || {};
+  Ember.merge(props, {id: idCounter++});
+  return dataForRequest(record, props);
 }
 
 asyncTest("creating parent->child hierarchy", function () {
@@ -99,6 +122,7 @@ asyncTest("creating parent->child hierarchy", function () {
   store.commit();
 
   waitForPromises(function() {
+    deepEqual(ajaxCalls, ['POST:/posts', 'POST:/comments'], 'parent should be created first');
     equal(get(comment, 'post'), post, "post should be set");
   });
 });
@@ -173,77 +197,9 @@ asyncTest("deleting child and parent", function () {
   });
 });
 
-module("Relational Adapter with embedded relationships", {
-  setup: function() {
-    promises = [];
-    ajaxResults = {};
-    ajaxCalls = [];
-    idCounter = 1;
-    Adapter = DS.RelationalAdapter.extend({
-      ajax: function(url, type, hash) {
-        var success = hash.success, self = this;
-        var deferred = $.Deferred();
-
-        var json = ajaxResults[type + ":" + url]();
-        ajaxCalls.push(type + ":" + url);
-        setTimeout(function() {
-          success.call(self, json);
-          deferred.resolve();
-        });
-
-        var promise = deferred.promise();
-        promises.push(promise);
-
-        return promise;
-      }
-    });
-
-    Post = DS.Model.extend();
-
-    Comment = DS.Model.extend({
-      body: DS.attr('string'),
-      post: DS.belongsTo(Post)
-    });
-
-    Comment.toString = function() {
-      return "App.Comment";
-    };
-
-    Post.reopen({
-      title: DS.attr('string'),
-      comments: DS.hasMany(Comment)
-    });
-
-    Post.toString = function() {
-      return "App.Post";
-    };
-
-    Adapter.map(Post, {
-      comments: { embedded: 'always' }
-    });
-
-    adapter = Adapter.create();
-
-    serializer = get(adapter, 'serializer');
-
-    store = DS.Store.create({
-      adapter: adapter
-    });
-  },
-
-  teardown: function() {
-    adapter.destroy();
-    store.destroy();
-    ajaxResults = undefined;
-    ajaxCalls = undefined;
-    promises = undefined;
-    idCounter = undefined;
-  }
-});
-
-asyncTest("creating parent->child hierarchy", function() {
+asyncTest("creating embedded parent->child hierarchy", function() {
   var post = store.createRecord(Post, {title: 'Who needs ACID??'});
-  var comment = get(post, 'comments').createRecord({body: 'not me'});
+  var tag = get(post, 'tags').createRecord({name: 'current'});
 
   ajaxResults = {
     'POST:/posts': function() { return dataForCreate(post); }
@@ -252,60 +208,60 @@ asyncTest("creating parent->child hierarchy", function() {
   store.commit();
 
   waitForPromises(function() {
-    equal(get(comment, 'post'), post, "post should be set");
+    equal(get(tag, 'post'), post, "post should be set");
   });
 });
 
-asyncTest("deleting child", function () {
-  adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', comments: [{id: 2, title: 'not me', post_id: 1}]});
+asyncTest("deleting embedded child", function () {
+  adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', tags: [{id: 2, name: 'current', post_id: 1}]});
 
   var post = store.find(Post, 1);
-  var comment = store.find(Comment, 2);
+  var tag = store.find(Tag, 2);
 
-  comment.deleteRecord();
+  tag.deleteRecord();
 
   var deleteHit = false;
   ajaxResults = {
-    'PUT:/posts/1': function() { return dataForRequest(post, {comments: []}); }
+    'PUT:/posts/1': function() { return dataForRequest(post, {tags: []}); }
   };
 
   store.commit();
 
   waitForPromises(function() {
     deepEqual(ajaxCalls, ['PUT:/posts/1'], 'only the parent should be updated');
-    equal(get(post, 'comments.length'), 0, 'post should not have any comments');
+    equal(get(post, 'tags.length'), 0, 'post should not have any tags');
   });
 });
 
-asyncTest("deleting child and updating parent", function () {
-  adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', comments: [{id: 2, title: 'not me', post_id: 1}]});
+asyncTest("deleting embedded child and updating parent", function () {
+  adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', tags: [{id: 2, name: 'current', post_id: 1}]});
 
   var post = store.find(Post, 1);
-  var comment = store.find(Comment, 2);
+  var tag = store.find(Tag, 2);
 
   set(post, 'title', 'Who ALWAYS needs ACID?');
-  comment.deleteRecord();
+  tag.deleteRecord();
 
   ajaxResults = {
-    'PUT:/posts/1': function() { return dataForRequest(post, {comments: []}); }
+    'PUT:/posts/1': function() { return dataForRequest(post, {tags: []}); }
   };
 
   store.commit();
 
   waitForPromises(function() {
     deepEqual(ajaxCalls, ['PUT:/posts/1'], 'only the parent should be updated');
-    equal(get(post, 'comments.length'), 0, 'post should not have any comments');
+    equal(get(post, 'tags.length'), 0, 'post should not have any tags');
   });
 });
 
-asyncTest("deleting child and parent", function () {
-  adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', comments: [{id: 2, title: 'not me', post_id: 1}]});
+asyncTest("deleting embedded child and parent", function () {
+  adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', tags: [{id: 2, name: 'current', post_id: 1}]});
 
   var post = store.find(Post, 1);
-  var comment = store.find(Comment, 2);
+  var tag = store.find(Tag, 2);
 
   post.deleteRecord();
-  comment.deleteRecord();
+  tag.deleteRecord();
 
   ajaxResults = {
     'DELETE:/posts/1': function() {}
@@ -316,4 +272,35 @@ asyncTest("deleting child and parent", function () {
   waitForPromises(function() {
     deepEqual(ajaxCalls, ['DELETE:/posts/1'], 'only the parent should be deleted');
   });
+});
+
+asyncTest("deleting embedded child and non-embedded child and starting a new transaction", function() {
+  adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', tags: [{id: 2, name: 'current', post_id: 1}], comments: [3]});
+  adapter.load(store, Comment, {id: 3, title: 'not me', post_id: 1});
+
+  var post = store.find(Post, 1);
+  var tag = store.find(Tag, 2);
+  var comment = store.find(Comment, 3);
+
+  tag.deleteRecord();
+  comment.deleteRecord();
+
+  ajaxResults = {
+    'PUT:/posts/1': function() { return dataForRequest(post, {tags: []}, {comments: []}); },
+    'DELETE:/comments/3': function() {}
+  };
+
+  store.commit();
+
+  waitForPromises(function() {
+    deepEqual(ajaxCalls, ['DELETE:/comments/3', 'PUT:/posts/1'], 'ajax calls should be in the correct order');
+    equal(get(post, 'tags.length'), 0, 'post should not have any tags');
+    equal(get(post, 'comments.length'), 0, 'post should not have any comments');
+
+    var transaction = store.transaction();
+
+    transaction.add(post);
+    transaction.rollback();
+  });
+
 });
