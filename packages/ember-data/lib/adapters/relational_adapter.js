@@ -20,7 +20,7 @@ Node.prototype = {
       return adapter.createRecord(store, this.record.constructor, this.record);
     } else if(this.operation === "updated") {
       return adapter.updateRecord(store, this.record.constructor, this.record);
-    } else if(this.opreation === "deleted") {
+    } else if(this.operation === "deleted") {
       return adapter.deleteRecord(store, this.record.constructor, this.record);
     }
   }
@@ -47,7 +47,7 @@ DS.RelationalAdapter = DS.RESTAdapter.extend({
   },
 
   _createDependencyGraph: function(store, commitDetails) {
-
+    var adapter = this;
     var clientIdToNode = Ember.MapWithDefault.create({
       defaultValue: function(clientId) {
         var record = store.recordCache[clientId];
@@ -71,14 +71,17 @@ DS.RelationalAdapter = DS.RESTAdapter.extend({
       var childNode = clientIdToNode.get(childClientId);
       var parentNode = clientIdToNode.get(parentClientId);
 
-      // TODO: take into account the type of operation
-      parentNode.addChild(childNode);
+      if(r.changeType === 'remove') {
+        childNode.addChild(parentNode);
+      } else {
+        parentNode.addChild(childNode);
+      }
     });
 
     var rootNodes = Ember.Set.create();
     function filter(record) {
       var node = clientIdToNode.get(get(record, 'clientId'));
-      if(!node.parent) {
+      if(!get(node, 'parent.record.isDirty') && adapter.shouldSave(record)) {
         rootNodes.add(node);
       }
     }
