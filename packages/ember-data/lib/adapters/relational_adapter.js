@@ -16,6 +16,9 @@ Node.prototype = {
     childNode.parent = this;
   },
   promise: function(store, adapter) {
+    if(!adapter.shouldSave(this.record)) {
+      return null;
+    }
     if(this.operation === "created") {
       return adapter.createRecord(store, this.record.constructor, this.record);
     } else if(this.operation === "updated") {
@@ -37,7 +40,8 @@ DS.RelationalAdapter = DS.RESTAdapter.extend({
       var promise = node.promise(store, adapter);
       if(node.children.length > 0) {
         promise = promise.pipe(function() {
-          return jQuery.when.apply(jQuery, node.children.map(createNestedPromise));
+          var childPromises = Ember.A(node.children.map(createNestedPromise)).compact();
+          return jQuery.when.apply(jQuery, childPromises);
         });
       }
       return promise;
@@ -71,7 +75,9 @@ DS.RelationalAdapter = DS.RESTAdapter.extend({
       var childNode = clientIdToNode.get(childClientId);
       var parentNode = clientIdToNode.get(parentClientId);
 
-      if(r.changeType === 'remove') {
+      // in non-embedded case, child delete requests should
+      // come before the parent request
+      if(r.changeType === 'remove' && adapter.shouldSave(childNode.record)) {
         childNode.addChild(parentNode);
       } else {
         parentNode.addChild(childNode);
@@ -81,7 +87,7 @@ DS.RelationalAdapter = DS.RESTAdapter.extend({
     var rootNodes = Ember.Set.create();
     function filter(record) {
       var node = clientIdToNode.get(get(record, 'clientId'));
-      if(!get(node, 'parent.record.isDirty') && adapter.shouldSave(record)) {
+      if(!get(node, 'parent.record.isDirty')) {
         rootNodes.add(node);
       }
     }
