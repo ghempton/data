@@ -2,7 +2,7 @@ var get = Ember.get, set = Ember.set;
 /*global $*/
 
 var adapter, Adapter, store, serializer, ajaxResults, ajaxCalls, promises, idCounter;
-var Post, Comment, Tag;
+var Post, Comment, Tag, Line;
 
 module("Relational Adapter", {
   setup: function() {
@@ -47,6 +47,19 @@ module("Relational Adapter", {
     Comment.toString = function() {
       return "App.Comment";
     };
+    
+    Line = DS.Model.extend({
+      body: DS.attr('string'),
+      comment: DS.belongsTo(Comment)
+    });
+
+    Line.toString = function() {
+      return "App.Line";
+    };
+
+    Comment.reopen({
+      lines: DS.hasMany(Line)
+    });
 
     Post.reopen({
       title: DS.attr('string'),
@@ -303,4 +316,32 @@ asyncTest("deleting embedded child and non-embedded child and starting a new tra
     transaction.rollback();
   });
 
+});
+
+asyncTest("creating grand-parent->embedded parent->embedded child hierarchy", function () {
+  Adapter.map(Post, {
+    comments: { embedded: 'always' }
+  });
+
+  Adapter.map(Comment, {
+    notes: { embedded: 'always' }
+  });
+  
+  var post = store.createRecord(Post, {title: 'Who needs ACID??'});
+  var comment = get(post, 'comments').createRecord({body: 'not me'});
+  var line = get(comment, 'lines').createRecord({body: 'I concur'});
+
+
+  ajaxResults = {
+    'POST:/lines': function() { return dataForCreate(line); },
+	'POST:/comments': function() { return dataForCreate(comment); },
+    'POST:/posts': function() { return dataForCreate(post); }
+  };
+
+  store.commit();
+
+  waitForPromises(function() {
+    equal(get(comment, 'post'), post, "post should be set");
+	equal(get(line, 'comment'), comment, "comment should be set");
+  });
 });
