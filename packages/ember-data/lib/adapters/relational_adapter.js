@@ -17,9 +17,9 @@ Node.prototype = {
   },
   promise: function(store, adapter) {
     if(!adapter.shouldSave(this.record)) {
-      return null;
-    }
-    if(this.operation === "created") {
+      // return an "identity" promise if we don't want to do anything
+      return jQuery.Deferred().resolve();
+    } else if(this.operation === "created") {
       return adapter.createRecord(store, this.record.constructor, this.record);
     } else if(this.operation === "updated") {
       return adapter.updateRecord(store, this.record.constructor, this.record);
@@ -40,7 +40,7 @@ DS.RelationalAdapter = DS.RESTAdapter.extend({
       var promise = node.promise(store, adapter);
       if(node.children.length > 0) {
         promise = promise.pipe(function() {
-          var childPromises = Ember.A(node.children.map(createNestedPromise)).compact();
+          var childPromises = node.children.map(createNestedPromise);
           return jQuery.when.apply(jQuery, childPromises);
         });
       }

@@ -1,8 +1,27 @@
 var get = Ember.get, set = Ember.set;
 /*global $*/
 
-var adapter, Adapter, store, serializer, ajaxResults, ajaxCalls, promises, idCounter;
-var Post, Comment, Tag, Line;
+var adapter, store, serializer, ajaxResults, ajaxCalls, promises, idCounter;
+var Adapter, Post, Comment, Tag, Vote;
+
+var TestRelationalAdapter = DS.RelationalAdapter.extend({
+  ajax: function(url, type, hash) {
+    var success = hash.success, self = this;
+    var deferred = $.Deferred();
+
+    var json = ajaxResults[type + ":" + url]();
+    ajaxCalls.push(type + ":" + url);
+    setTimeout(function() {
+      success.call(self, json);
+      deferred.resolve();
+    });
+
+    var promise = deferred.promise();
+    promises.push(promise);
+
+    return promise;
+  }
+});
 
 module("Relational Adapter", {
   setup: function() {
@@ -10,55 +29,39 @@ module("Relational Adapter", {
     ajaxResults = {};
     ajaxCalls = [];
     idCounter = 1;
-    Adapter = DS.RelationalAdapter.extend({
-      ajax: function(url, type, hash) {
-        var success = hash.success, self = this;
-        var deferred = $.Deferred();
-
-        var json = ajaxResults[type + ":" + url]();
-        ajaxCalls.push(type + ":" + url);
-        setTimeout(function() {
-          success.call(self, json);
-          deferred.resolve();
-        });
-
-        var promise = deferred.promise();
-        promises.push(promise);
-
-        return promise;
-      }
-    });
+    Adapter = TestRelationalAdapter.extend();
 
     Post = DS.Model.extend();
+    Post.toString = function() {
+      return "App.Post";
+    };
+
     Tag = DS.Model.extend({
       name: DS.attr('string'),
       post: DS.belongsTo(Post)
     });
-
     Tag.toString = function() {
       return "App.Tag";
     };
 
-    Comment = DS.Model.extend({
-      body: DS.attr('string'),
-      post: DS.belongsTo(Post)
-    });
-
+    Comment = DS.Model.extend();
     Comment.toString = function() {
       return "App.Comment";
     };
-    
-    Line = DS.Model.extend({
-      body: DS.attr('string'),
+
+    Vote = DS.Model.extend({
       comment: DS.belongsTo(Comment)
     });
-
-    Line.toString = function() {
-      return "App.Line";
+    Vote.toString = function() {
+      return "App.Vote";
     };
 
     Comment.reopen({
-      lines: DS.hasMany(Line)
+      body: DS.attr('string'),
+      post: DS.belongsTo(Post),
+      comments: DS.hasMany(Comment),
+      comment: DS.belongsTo(Comment),
+      votes: DS.hasMany(Vote)
     });
 
     Post.reopen({
@@ -66,10 +69,6 @@ module("Relational Adapter", {
       comments: DS.hasMany(Comment),
       tags: DS.hasMany(Tag)
     });
-
-    Post.toString = function() {
-      return "App.Post";
-    };
 
     Adapter.map(Post, {
       tags: { embedded: 'always' }
@@ -139,6 +138,49 @@ asyncTest("creating parent->child hierarchy", function () {
     equal(get(comment, 'post'), post, "post should be set");
   });
 });
+
+asyncTest("creating parent->child->child hierarchy", function () {
+  var post = store.createRecord(Post, {title: 'Who needs ACID??'});
+  var comment = get(post, 'comments').createRecord({body: 'not me'});
+  var vote = get(comment, 'votes').createRecord({});
+
+  ajaxResults = {
+    'POST:/comments': function() { return dataForCreate(comment); },
+    'POST:/votes': function() { return dataForCreate(vote); },
+    'POST:/posts': function() { return dataForCreate(post); }
+  };
+
+  store.commit();
+
+  waitForPromises(function() {
+    deepEqual(ajaxCalls, ['POST:/posts', 'POST:/comments', 'POST:/votes'], 'parents should be created first');
+    equal(get(comment, 'post'), post, "post should be set");
+    equal(get(vote, 'comment'), comment, "comment should be set");
+  });
+});
+
+// asyncTest("creating recursive parent->child->child hierarchy", function () {
+//   var post = store.createRecord(Post, {title: 'Who needs ACID??'});
+//   var comment = get(post, 'comments').createRecord({body: 'not me'});
+//   var subComment = get(comment, 'comments').createRecord({body: 'why not?'});
+//   debugger
+
+//   ajaxResults = {
+//     'POST:/comments': function() {
+//       ajaxResults['POST:/comments'] = function() { return dataForCreate(subComment); };
+//       return dataForCreate(comment);
+//     },
+//     'POST:/posts': function() { return dataForCreate(post); }
+//   };
+
+//   store.commit();
+
+//   waitForPromises(function() {
+//     deepEqual(ajaxCalls, ['POST:/posts', 'POST:/comments', 'POST:/comments'], 'parents should be created first');
+//     equal(get(comment, 'post'), post, "post should be set");
+//     equal(get(subComment, 'comment'), comment, "comment should be set");
+//   });
+// });
 
 asyncTest("deleting child", function () {
   adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', comments: [2]});
@@ -318,30 +360,86 @@ asyncTest("deleting embedded child and non-embedded child and starting a new tra
 
 });
 
-asyncTest("creating grand-parent->embedded parent->embedded child hierarchy", function () {
-  Adapter.map(Post, {
-    comments: { embedded: 'always' }
-  });
+module("Relational Adapter - Complex Embedded", {
+  setup: function() {
+    promises = [];
+    ajaxResults = {};
+    ajaxCalls = [];
+    idCounter = 1;
+    Adapter = TestRelationalAdapter.extend();
 
-  Adapter.map(Comment, {
-    notes: { embedded: 'always' }
-  });
-  
+    Post = DS.Model.extend();
+    Post.toString = function() {
+      return "App.Post";
+    };
+
+    Comment = DS.Model.extend();
+    Comment.toString = function() {
+      return "App.Comment";
+    };
+
+    Vote = DS.Model.extend({
+      comment: DS.belongsTo(Comment)
+    });
+    Vote.toString = function() {
+      return "App.Vote";
+    };
+
+    Comment.reopen({
+      body: DS.attr('string'),
+      post: DS.belongsTo(Post),
+      comments: DS.hasMany(Comment),
+      comment: DS.belongsTo(Comment),
+      votes: DS.hasMany(Vote)
+    });
+
+    Post.reopen({
+      title: DS.attr('string'),
+      comments: DS.hasMany(Comment),
+      tags: DS.hasMany(Tag)
+    });
+
+    Adapter.map(Post, {
+      comments: { embedded: 'always' }
+    });
+
+    Adapter.map(Comment, {
+      votes: { embedded: 'always' }
+    });
+
+    adapter = Adapter.create();
+
+    serializer = get(adapter, 'serializer');
+
+    store = DS.Store.create({
+      adapter: adapter
+    });
+  },
+
+  teardown: function() {
+    adapter.destroy();
+    store.destroy();
+    ajaxResults = undefined;
+    ajaxCalls = undefined;
+    promises = undefined;
+    idCounter = undefined;
+  }
+});
+
+asyncTest("creating grand-parent->embedded parent->embedded child hierarchy", function () {
   var post = store.createRecord(Post, {title: 'Who needs ACID??'});
   var comment = get(post, 'comments').createRecord({body: 'not me'});
-  var line = get(comment, 'lines').createRecord({body: 'I concur'});
-
+  var vote = get(comment, 'votes').createRecord({});
 
   ajaxResults = {
-    'POST:/lines': function() { return dataForCreate(line); },
-	'POST:/comments': function() { return dataForCreate(comment); },
     'POST:/posts': function() { return dataForCreate(post); }
   };
 
   store.commit();
 
   waitForPromises(function() {
+    deepEqual(ajaxCalls, ['POST:/posts'], 'only the parent should be receive an ajax request');
     equal(get(comment, 'post'), post, "post should be set");
-	equal(get(line, 'comment'), comment, "comment should be set");
+    equal(get(vote, 'comment'), comment, "comment should be set");
   });
 });
