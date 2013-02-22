@@ -615,7 +615,7 @@ DS.Adapter = Ember.Object.extend(DS._Mappable, {
   },
 
   commit: function(store, commitDetails) {
-    this.save(store, commitDetails);
+    return this.save(store, commitDetails);
   },
 
   save: function(store, commitDetails) {

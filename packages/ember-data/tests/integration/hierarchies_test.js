@@ -4,7 +4,7 @@ var get = Ember.get, set = Ember.set;
 var adapter, store, serializer, ajaxResults, ajaxCalls, promises, idCounter;
 var Adapter, Post, Comment, Tag, Vote;
 
-var TestRelationalAdapter = DS.RelationalAdapter.extend({
+var TestAdapter = DS.RESTAdapter.extend({
   ajax: function(url, type, hash) {
     var success = hash.success, self = this;
     var deferred = $.Deferred();
@@ -23,13 +23,13 @@ var TestRelationalAdapter = DS.RelationalAdapter.extend({
   }
 });
 
-module("Relational Adapter", {
+module("DS.RESTAdapter Hierarchies", {
   setup: function() {
     promises = [];
     ajaxResults = {};
     ajaxCalls = [];
     idCounter = 1;
-    Adapter = TestRelationalAdapter.extend();
+    Adapter = TestAdapter.extend();
 
     Post = DS.Model.extend();
     Post.toString = function() {
@@ -120,6 +120,32 @@ function dataForCreate(record, props) {
   props = props || {};
   Ember.merge(props, {id: idCounter++});
   return dataForRequest(record, props);
+}
+
+function dataForBulkRequest(records) {
+  var type = records[0].constructor;
+  var root = adapter.rootForType(type);
+  root = serializer.pluralize(root);
+  var data = records.map(function(r) {
+    return adapter.serialize(r, { includeId: true });
+  });
+  var result = {};
+  result[root] = data;
+  return result;
+}
+
+function dataForBulkCreate(records) {
+  var type = records[0].constructor;
+  var root = adapter.rootForType(type);
+  root = serializer.pluralize(root);
+  var data = records.map(function(r) {
+    var hash = adapter.serialize(r, { includeId: true });
+    hash.id = idCounter++;
+    return hash;
+  });
+  var result = {};
+  result[root] = data;
+  return result;
 }
 
 asyncTest("creating parent->child hierarchy", function () {
@@ -360,13 +386,105 @@ asyncTest("deleting embedded child and non-embedded child and starting a new tra
 
 });
 
-module("Relational Adapter - Complex Embedded", {
+asyncTest("creating parent->children hierarchy with bulkCommit=true", function () {
+  set(adapter, 'bulkCommit', true);
+  var post = store.createRecord(Post, {title: 'Who needs ACID??'});
+  var comments = [get(post, 'comments').createRecord({body: 'not me'}),
+                  get(post, 'comments').createRecord({body: 'me either'})];
+
+  ajaxResults = {
+    'POST:/comments': function() { return dataForBulkCreate(comments); },
+    'POST:/posts': function() { return dataForBulkCreate([post]); }
+  };
+
+  store.commit();
+
+  waitForPromises(function() {
+    deepEqual(ajaxCalls, ['POST:/posts', 'POST:/comments'], 'parent should be created first');
+    comments.forEach(function(comment) {
+      equal(get(comment, 'post'), post, "post should be set");
+    });
+  });
+});
+
+asyncTest("deleting child and updating parent with bulkCommit=true", function () {
+  set(adapter, 'bulkCommit', true);
+  adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', comments: [2]});
+  adapter.load(store, Comment, {id: 2, title: 'not me', post_id: 1});
+
+  var post = store.find(Post, 1);
+  var comment = store.find(Comment, 2);
+
+  set(post, 'title', 'Who ALWAYS needs ACID?');
+  comment.deleteRecord();
+
+  ajaxResults = {
+    'DELETE:/comments/bulk': function() {},
+    'PUT:/posts/bulk': function() { return {posts: [{id: 1, title: 'Who ALWAYS needs ACID?'}]}; }
+  };
+
+  store.commit();
+
+  waitForPromises(function() {
+    deepEqual(ajaxCalls, ['DELETE:/comments/bulk', 'PUT:/posts/bulk'], 'comment should be deleted first');
+    equal(get(post, 'comments.length'), 0, 'post should not have any comments');
+  });
+});
+
+asyncTest("creating parent->child->child hierarchy with bulkCommit=true", function () {
+  set(adapter, 'bulkCommit', true);
+  var post = store.createRecord(Post, {title: 'Who needs ACID??'});
+  var comment = get(post, 'comments').createRecord({body: 'not me'});
+  var vote = get(comment, 'votes').createRecord({});
+
+  ajaxResults = {
+    'POST:/comments': function() { return dataForBulkCreate([comment]); },
+    'POST:/votes': function() { return dataForBulkCreate([vote]); },
+    'POST:/posts': function() { return dataForBulkCreate([post]); }
+  };
+
+  store.commit();
+
+  waitForPromises(function() {
+    deepEqual(ajaxCalls, ['POST:/posts', 'POST:/comments', 'POST:/votes'], 'parents should be created first');
+    equal(get(comment, 'post'), post, "post should be set");
+    equal(get(vote, 'comment'), comment, "comment should be set");
+  });
+});
+
+asyncTest("deleting child and parent with bulkCommit=true", function () {
+  set(adapter, 'bulkCommit', true);
+  adapter.load(store, Post, {id: 1, title: 'Who needs ACID??', comments: [2]});
+  adapter.load(store, Comment, {id: 2, title: 'not me', post_id: 1});
+
+  var post = store.find(Post, 1);
+  var comment = store.find(Comment, 2);
+
+  post.deleteRecord();
+  comment.deleteRecord();
+
+  var commentDelete = false;
+  var postDelete = false;
+  ajaxResults = {
+    'DELETE:/comments/bulk': function() { commentDelete = true; },
+    'DELETE:/posts/bulk': function() { postDelete = true; }
+  };
+
+  store.commit();
+
+  waitForPromises(function() {
+    ok(commentDelete, "comment should have received a DELETE request");
+    ok(postDelete, "post should have received a DELETE request");
+  });
+});
+
+module("DS.RESTAdapter Hierarchies - Complex Embedded", {
   setup: function() {
     promises = [];
     ajaxResults = {};
     ajaxCalls = [];
     idCounter = 1;
-    Adapter = TestRelationalAdapter.extend();
+    Adapter = TestAdapter.extend();
 
     Post = DS.Model.extend();
     Post.toString = function() {

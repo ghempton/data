@@ -197,8 +197,9 @@ DS.Transaction = Ember.Object.extend({
 
     this.removeCleanRecords();
 
+    var result;
     if (!commitDetails.created.isEmpty() || !commitDetails.updated.isEmpty() || !commitDetails.deleted.isEmpty() || !relationships.isEmpty()) {
-      if (adapter && adapter.commit) { adapter.commit(store, commitDetails); }
+      if (adapter && adapter.commit) { result = adapter.commit(store, commitDetails); }
       else { throw fmt("Adapter is either null or does not implement `commit` method", this); }
     }
 
@@ -208,6 +209,8 @@ DS.Transaction = Ember.Object.extend({
     relationships.forEach(function(relationship) {
       relationship.destroy();
     });
+
+    return result;
   },
 
   /**

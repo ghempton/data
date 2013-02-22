@@ -2,6 +2,8 @@ var store, Adapter, adapter;
 var Post, Comment, User, App;
 var attr = DS.attr;
 
+/*global $*/
+
 module("Embedded Saving", {
   setup: function() {
     App = Ember.Namespace.create({ name: "App" });
@@ -41,10 +43,14 @@ asyncTest("Adding a new embedded record to an unsaved record: Both records use t
     equal(type, 'POST');
     equal(hash.data.post.comments.length, 1);
 
+    var promise = $.Deferred();
     setTimeout(function() {
       hash.success.call(hash.context);
       start();
+      promise.resolve();
     });
+
+    return promise;
   };
 
   var transaction = store.transaction();
