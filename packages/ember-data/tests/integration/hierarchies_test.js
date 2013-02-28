@@ -162,6 +162,7 @@ asyncTest("creating parent->child hierarchy", function () {
   waitForPromises(function() {
     deepEqual(ajaxCalls, ['POST:/posts', 'POST:/comments'], 'parent should be created first');
     equal(get(comment, 'post'), post, "post should be set");
+    equal(get(post, 'comments.firstObject'), comment, "post's comments should include comment");
   });
 });
 
