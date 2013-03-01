@@ -251,6 +251,10 @@ DS.RESTAdapter = DS.Adapter.extend({
     });
   },
 
+  shouldPreserveDirtyRecords: function(relationship) {
+    return relationship.kind === 'hasMany';
+  },
+
   dirtyRecordsForRecordChange: function(dirtySet, record) {
     this._dirtyTree(dirtySet, record);
   },
