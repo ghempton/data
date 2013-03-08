@@ -69,6 +69,18 @@ module("DS.RESTAdapter Hierarchies", {
       comments: DS.hasMany(Comment),
       tags: DS.hasMany(Tag)
     });
+        
+    Category = DS.Model.extend({
+      name: DS.attr("string")
+    });
+    Category.toString = function() {
+       return "App.Category";
+    };
+    
+    Post.reopen({
+       category: DS.belongsTo(Category)
+    });
+
 
     Adapter.map(Post, {
       tags: { embedded: 'always' }
@@ -164,6 +176,27 @@ asyncTest("creating parent->child hierarchy", function () {
     deepEqual(ajaxCalls, ['POST:/posts', 'POST:/comments'], 'parent should be created first');
     equal(get(comment, 'post'), post, "post should be set");
     equal(get(post, 'comments.firstObject'), comment, "post's comments should include comment");
+  });
+});
+
+asyncTest("creating parent->oneChild parent->anotherChild hierarchy", function() {
+  var post = store.createRecord(Post, {title: 'what is the answer to life the universe and everything?'});
+  var comment = get(post, 'comments').createRecord({body: '42'});
+  var category = store.createRecord(Category, {name: "epic quotes"});
+  set(post, 'category', category);
+  
+  ajaxResults = {
+    'POST:/comments': function() { return dataForCreate(comment); },
+    'POST:/categories': function() { return dataForCreate(category); },
+    'POST:/posts': function() { return dataForCreate(post); },
+  };
+  
+  store.commit();
+  
+  waitForPromises(function() {
+    deepEqual(ajaxCalls, ['POST:/posts', 'POST:/categories', 'POST:/comments'], 'should be created in correct order');
+    equal(get(category, "post"), post, "category should be set");
+    equal(get(comment, "post"), post, "comment should be set");
   });
 });
 
