@@ -96,12 +96,13 @@ DS.Transaction = Ember.Object.extend({
     set(this, 'relationships', Ember.OrderedSet.create());
   },
 
+  isPending: false,
+  isError: false,
+  isCompleted: false,
+
   /**
     Creates a new record of the given type and assigns it to the transaction
     on which the method was called.
-
-    This is useful as only clean records can be added to a transaction and
-    new records created using other methods immediately become dirty.
 
     @param {DS.Model} type the model type to create
     @param {Object} hash the data hash to assign the new record
@@ -147,41 +148,42 @@ DS.Transaction = Ember.Object.extend({
     Commits the transaction, which causes all of the modified records that
     belong to the transaction to be sent to the adapter to be saved.
 
-    Once you call `commit()` on a transaction, you should not re-use it.
-
     When a record is saved, it will be removed from this transaction and
     moved back to the store's default transaction.
   */
   commit: function() {
     var store = get(this, 'store');
     var adapter = get(store, '_adapter');
+    var relationships = get(this, 'relationships');
+
+    Ember.assert("You cannot commit a pending transaction.", !get(this, 'isPending'));
+    Ember.assert("You cannot commit a completed transaction.", !get(this, 'isCompleted'));
+
+    set(this, 'isPending', true);
+
+    var commitDetails = this._commitDetails();
 
     if (get(this, 'isDefault')) {
       set(store, 'defaultTransaction', store.transaction());
     }
 
     this.removeCleanRecords();
-    var relationships = get(this, 'relationships');
 
-    var commitDetails = this._commitDetails();
-
-    var result;
+    var transaction = this;
+    var promise;
     if (!commitDetails.created.isEmpty() || !commitDetails.updated.isEmpty() || !commitDetails.deleted.isEmpty() || !commitDetails.relationships.isEmpty()) {
-
-      Ember.assert("You tried to commit records but you have no adapter", adapter);
-      Ember.assert("You tried to commit records but your adapter does not implement `commit`", adapter.commit);
-
-      result = adapter.commit(store, commitDetails);
+      promise = Ember.RSVP.resolve(adapter.commit(store, commitDetails));
+    } else {
+      promise = Ember.RSVP.resolve();
     }
-
-    // Once we've committed the transaction, there is no need to
-    // keep the OneToManyChanges around. Destroy them so they
-    // can be garbage collected.
-    relationships.forEach(function(relationship) {
-      relationship.destroy();
+    return promise.then(function(result) {
+      transaction.cleanup();
+      Ember.setProperties(transaction, {'isCompleted': true, 'isPending': false, 'isError': false});
+      return result;
+    }, function(error) {
+      Ember.setProperties(transaction, {'isError': true, 'isPending': false});
+      throw error;
     });
-
-    return result;
   },
 
   _commitDetails: function() {
@@ -319,6 +321,16 @@ DS.Transaction = Ember.Object.extend({
   */
   removeRecord: function(record) {
     get(this, 'records').remove(record);
+  },
+
+  cleanup: function() {
+    var relationships = get(this, 'relationships');
+    // Once we've committed the transaction, there is no need to
+    // keep the OneToManyChanges around. Destroy them so they
+    // can be garbage collected.
+    relationships.forEach(function(relationship) {
+      relationship.destroy();
+    });
   }
 
 });

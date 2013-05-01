@@ -310,7 +310,11 @@ test("if a created record is marked as invalid by the server, it enters an error
 
   equal(get(yehuda, 'isNew'), true, "precond - record is still new");
 
+  // TODO: this is hacky right now since the base
+  // adapter does not return a promise (and hence doesnt reject)
+  store.get('defaultTransaction').add(yehuda);
   store.commit();
+
   equal(get(yehuda, 'isValid'), true, "record remains valid after committing");
   equal(get(yehuda, 'isNew'), false, "record is no longer new");
 
@@ -359,7 +363,11 @@ test("if an updated record is marked as invalid by the server, it enters an erro
   equal(get(yehuda, 'isValid'), true, "the record is no longer invalid after changing");
   equal(get(yehuda, 'isDirty'), true, "the record has outstanding changes");
 
+  // TODO: this is hacky right now since the base
+  // adapter does not return a promise (and hence doesnt reject)
+  store.get('defaultTransaction').add(yehuda);
   store.commit();
+  
   equal(get(yehuda, 'isValid'), true, "record remains valid after committing");
   equal(get(yehuda, 'isDirty'), false, "record is no longer new");
 
