@@ -1,7 +1,7 @@
 var get = Ember.get, set = Ember.set;
 
 var adapter, store, serializer, ajaxResults, ajaxCalls, idCounter;
-var Adapter, Post, Comment, Tag, Vote, Group;
+var Adapter, Post, Comment, Tag, Vote, Group, Author;
 
 var TestAdapter = DS.RESTAdapter.extend({
 
@@ -53,18 +53,28 @@ module("DS.RESTAdapter Hierarchies", {
       return "App.Vote";
     };
 
+    Author = DS.Model.extend({});
+    Author.toString = function() {
+      return "App.Author";
+    };
+
     Comment.reopen({
       body: DS.attr('string'),
       post: DS.belongsTo(Post),
       comments: DS.hasMany(Comment),
       comment: DS.belongsTo(Comment),
-      votes: DS.hasMany(Vote)
+      votes: DS.hasMany(Vote),
+      author: DS.belongsTo(Author)
     });
 
     Post.reopen({
       title: DS.attr('string'),
       comments: DS.hasMany(Comment),
       tags: DS.hasMany(Tag)
+    });
+
+    Author.reopen({
+      name: DS.attr('string')
     });
 
     Adapter.map(Post, {
@@ -130,6 +140,32 @@ function dataForBulkCreate(records) {
   result[root] = data;
   return result;
 }
+
+asyncTest("creating hasMany->through hierarchy", function() {
+  var post = store.createRecord(Post, {title: 'Whoe needs ACID??'});
+  var author = store.createRecord(Author, {name: 'Tom Dale'});
+  var comment = get(post, 'comments').createRecord({body: 'not me', author: author});
+  
+
+  ajaxResults = {
+    'POST:/comments': function() { return dataForCreate(comment); },
+    'POST:/posts': function() { return dataForCreate(post); },
+    'POST:/authors': function() { return dataForCreate(author); }
+  };
+
+  var promise = store.commit();
+
+  promise.then(function() {
+    start();
+    equal(ajaxCalls.length, 3, 'persist all resources');
+    equal(ajaxCalls[2], 'POST:/comments', 'joining relationship should be saved after parents');
+    equal(get(comment, 'post'), post, "post should be set");
+    equal(get(comment, 'author'), author, "author should be set");
+    equal(get(post, 'comments.firstObject'), comment, "post's comments should include comment");
+  });
+
+});
+
 
 asyncTest("creating parent->child hierarchy", function () {
   var post = store.createRecord(Post, {title: 'Who needs ACID??'});
