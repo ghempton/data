@@ -109,8 +109,17 @@ DS.RESTAdapter = DS.Adapter.extend({
     var adapter = this;
 
     var rootNodes = this._createDependencyGraph(store, commitDetails);
+    var nodes = Ember.Set.create();
 
     function createNestedPromise(node) {
+      
+      //guard against committing same node more than once
+      if(nodes.contains(node)) {
+        return Ember.RSVP.resolve();
+      } else {
+        nodes.add(node);
+      }
+   
       var promise;
       if(!adapter.shouldSave(node.record) || !node.dirtyType) {
         // return an "identity" promise if we don't want to do anything
@@ -227,7 +236,6 @@ DS.RESTAdapter = DS.Adapter.extend({
     commitDetails.created.forEach(filter);
     commitDetails.updated.forEach(filter);
     commitDetails.deleted.forEach(filter);
-
     return rootNodes;
   },
 
